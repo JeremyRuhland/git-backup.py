@@ -85,28 +85,29 @@ else:
     config_data['repositories'] = args.repositories
 
 
-github_repo_list = []
+github_individual_repo_list = []
 github_user_list = []
-git_repo_list = []
+github_repo_list = []
+other_git_repo_list = []
 
 # Sort repository entries
 for item in args.repositories:
     # Capture groups: 0 -- Full match, 1 -- Username, 2 -- repo name
-    r = re.search(r"(^[\w.]+?)\/([\w.]*)", item) # githubUsername/reponame
+    r = re.search(r"^[\w._-]+?\/[\w._-]*", item) # githubUsername/reponame
     if r:
-        github_repo_list.append((r.group(1), r.group(2)))
+        github_individual_repo_list.append(r.group(0))
 
-    r = re.search(r"^[\w.]+$", item) # github user
+    r = re.search(r"^[\w._-]+$", item) # github user
     if r:
         github_user_list.append(r.group(0))
 
-    r = re.search(r"((?:http|https|git):\/\/[\w.]+\/[\w.]*)|([\w.]+?\@[\w.]+?:[\w.\/]+)", item) # direct url and ssh repo urls
+    r = re.search(r"((?:http|https|git):\/\/[\w._-]+\/[\w._-]*)|([\w._-]+?\@[\w._-]+?:[\w.\/_-]+)", item) # direct url and ssh repo urls
     if r:
-        git_repo_list.append(r.group(0))
+        other_git_repo_list.append(r.group(0))
 
 
 # Log into github api if any github user links were specified
-if github_user_list:
+if github_user_list or github_individual_repo_list:
     # Log in to github api, use token if available
     if args.token is not None:
         gapi = Github(args.token)
@@ -122,4 +123,33 @@ if github_user_list:
 
 # Find every accessable repo from each specified user and add to repo list
 for github_user in github_user_list:
-    github_repo_list.extend([x.git_url for x in gapi.get_user(github_user).get_repos()])
+    github_repo_list.extend(gapi.get_user(github_user).get_repos())
+
+# Add githubUsername/repoName repos to list
+github_repo_list.extend([gapi.get_repo(x) for x in github_individual_repo_list])
+
+
+git_repo_list = []
+
+def check_if_repo_exist(path):
+    '''
+    Checks if a git repo exists at given path
+
+    :param path: Path to check for git repo
+
+    :return: Bool
+    '''
+    if pygit2.discover_repository(path):
+        return (True)
+    else:
+        return (False)
+
+
+# Find paths and check for update or push
+# Github repos
+git_repo_list.extend([{'url': x.clone_url, 'path': (config_data['output_directory'] + '/' + x.full_name + '.git'), 'status': check_if_repo_exist(config_data['output_directory'] + '/' + x.full_name + '.git')} for x in github_repo_list])
+
+# Other git repos by direct url or ssh
+git_repo_list.extend([{'url': x, 'path': (config_data['output_directory'] + '/' + x.replace(':', '/')), 'status': check_if_repo_exist(config_data['output_directory'] + '/' + x.replace(':', '/'))} for x in other_git_repo_list])
+
+# Clone or pull repos
