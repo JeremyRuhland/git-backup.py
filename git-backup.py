@@ -101,7 +101,7 @@ for item in args.repositories:
     if r:
         github_user_list.append(r.group(0))
 
-    r = re.search(r"((?:http|https|git):\/\/[\w._-]+\/[\w._-]*)|([\w._-]+?\@[\w._-]+?:[\w.\/_-]+)", item) # direct url and ssh repo urls
+    r = re.search(r"((?:http|https|git):\/\/[\w/._-]+\/[\w._-]*)|([\w._-]+?\@[\w._-]+?:[\w.\/_-]+)", item) # direct url and ssh repo urls
     if r:
         other_git_repo_list.append(r.group(0))
 
@@ -147,9 +147,36 @@ def check_if_repo_exist(path):
 
 # Find paths and check for update or push
 # Github repos
-git_repo_list.extend([{'url': x.clone_url, 'path': (config_data['output_directory'] + '/' + x.full_name + '.git'), 'status': check_if_repo_exist(config_data['output_directory'] + '/' + x.full_name + '.git')} for x in github_repo_list])
+git_repo_list.extend([{'url': repo.git_url, 'path': (config_data['output_directory'] + '/' + repo.full_name + '.git')} for repo in github_repo_list])
 
 # Other git repos by direct url or ssh
-git_repo_list.extend([{'url': x, 'path': (config_data['output_directory'] + '/' + x.replace(':', '/')), 'status': check_if_repo_exist(config_data['output_directory'] + '/' + x.replace(':', '/'))} for x in other_git_repo_list])
+# Replace colon in ssh url with / to create valid path
+git_repo_list.extend([{'url': repo, 'path': (config_data['output_directory'] + '/' + repo.replace(':', '/'))} for repo in other_git_repo_list])
+
+def init_remote(repo, name, url):
+    '''
+    Remote callback to set up repo as --mirror
+    Function signature described in pygit2.clone_repository
+    '''
+    
+    # Create the remote with a mirroring url
+    remote = repo.remotes.create(name, url, "+refs/*:refs/*")
+    # And set the configuration option to true for the push command
+    mirror_var = "remote.{}.mirror".format(name)
+    repo.config[mirror_var] = True
+    # Return the remote, which pygit2 will use to perform the clone
+    return remote
+
 
 # Clone or pull repos
+for repo in git_repo_list:
+    # Check if repo already created
+    if pygit2.discover_repository(repo['path']):
+        # Fetch new commits for repo
+        print('Fetching from %s' % repo['url'])
+        pygit2.Repository(repo['path']).remotes['origin'].fetch()
+        
+    # Clone new repos
+    else:
+        print('Cloning from %s...' % repo['url'])
+        pygit2.clone_repository(repo['url'], repo['path'], bare=True, remote=init_remote)
